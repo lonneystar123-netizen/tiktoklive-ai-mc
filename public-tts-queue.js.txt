@@ -1,0 +1,207 @@
+class VietnameseTTSQueue {
+  constructor(onStateChange) {
+    this.queue = [];
+    this.pendingJoins = [];
+    this.joinBatchTimer = null;
+    this.isSpeaking = false;
+    this.isPaused = false;
+    this.enabled = true;
+    this.onStateChange = onStateChange || (() => {});
+    this.currentAudio = null;
+
+    this.settings = {
+      gender: 'female-north',
+      engine: 'hybrid',
+      rate: 1.0,
+      pitch: 1.0,
+      volume: 1.0,
+      delaySeconds: 1.5
+    };
+  }
+
+  updateSettings(partial) {
+    this.settings = { ...this.settings, ...partial };
+  }
+
+  setEnabled(val) {
+    this.enabled = Boolean(val);
+    if (!this.enabled) {
+      this.clearQueue();
+    }
+    this.emitState();
+  }
+
+  togglePause() {
+    this.isPaused = !this.isPaused;
+    if (this.isPaused) {
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      if (this.currentAudio) this.currentAudio.pause();
+    } else {
+      if (this.currentAudio && this.currentAudio.paused && this.currentAudio.src) {
+        this.currentAudio.play().catch(() => {});
+      }
+      this.processNext();
+    }
+    this.emitState();
+    return this.isPaused;
+  }
+
+  clearQueue() {
+    this.queue = [];
+    this.pendingJoins = [];
+    if (this.joinBatchTimer) {
+      clearTimeout(this.joinBatchTimer);
+      this.joinBatchTimer = null;
+    }
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio = null;
+    }
+    this.isSpeaking = false;
+    this.emitState();
+  }
+
+  // Gom nhóm nhiều người vào live trong 1.8s để đọc mượt, không chồng chéo
+  enqueueJoin(userName, singleSpeechText) {
+    if (!this.enabled) return;
+    this.pendingJoins.push({ userName, singleSpeechText });
+
+    if (!this.joinBatchTimer) {
+      this.joinBatchTimer = setTimeout(() => {
+        const batch = [...this.pendingJoins];
+        this.pendingJoins = [];
+        this.joinBatchTimer = null;
+
+        if (batch.length === 1) {
+          this.enqueue(batch[0].singleSpeechText, false);
+        } else if (batch.length > 1) {
+          const names = batch.slice(0, 4).map((x) => x.userName).join(', ');
+          const extra = batch.length > 4 ? ` cùng ${batch.length - 4} đạo hữu khác` : '';
+          this.enqueue(`Hoan nghênh các đạo hữu ${names}${extra} đã bước vào buổi tu luyện!`, false);
+        }
+      }, 1800);
+    }
+  }
+
+  enqueue(text, highPriority = false) {
+    if (!this.enabled || !text) return;
+    const item = { text, highPriority };
+    if (highPriority) {
+      // Đưa quà tặng lớn lên đầu hàng đợi (ngay sau câu đang đọc)
+      this.queue.unshift(item);
+    } else {
+      this.queue.push(item);
+    }
+    this.emitState();
+    this.processNext();
+  }
+
+  emitState() {
+    this.onStateChange({
+      queueLength: this.queue.length + this.pendingJoins.length,
+      isSpeaking: this.isSpeaking,
+      isPaused: this.isPaused,
+      enabled: this.enabled
+    });
+  }
+async processNext() {
+    if (this.isSpeaking || this.isPaused || !this.enabled) {
+      this.emitState();
+      return;
+    }
+    if (this.queue.length === 0) {
+      this.emitState();
+      return;
+    }
+
+    const nextItem = this.queue.shift();
+    this.isSpeaking = true;
+    this.emitState();
+
+    try {
+      await this.speakText(nextItem.text);
+    } catch (e) {
+      console.warn('TTS fallback error:', e);
+    }
+
+    const waitMs = Math.max(300, this.settings.delaySeconds * 1000);
+    await new Promise((r) => setTimeout(r, waitMs));
+
+    this.isSpeaking = false;
+    this.emitState();
+    this.processNext();
+  }
+
+  pickBrowserVietnameseVoice() {
+    if (!window.speechSynthesis) return null;
+    const voices = window.speechSynthesis.getVoices() || [];
+    const viVoices = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith('vi'));
+    if (!viVoices.length) return null;
+
+    const wantMale = this.settings.gender === 'male-warm';
+    const matched = viVoices.find((v) => {
+      const n = v.name.toLowerCase();
+      return wantMale ? (n.includes('nam') || n.includes('male')) : (n.includes('nữ') || n.includes('nu') || n.includes('female') || n.includes('linh'));
+    });
+    return matched || viVoices[0];
+  }
+
+  speakWithBrowser(text) {
+    return new Promise((resolve, reject) => {
+      if (!window.speechSynthesis) return reject(new Error('No speechSynthesis'));
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'vi-VN';
+      const voice = this.pickBrowserVietnameseVoice();
+      if (voice) utter.voice = voice;
+
+      let pitchAdj = this.settings.pitch;
+      if (!voice) {
+        pitchAdj = this.settings.gender === 'male-warm' ? Math.max(0.7, pitchAdj - 0.15) : Math.min(1.3, pitchAdj + 0.08);
+      }
+
+      utter.rate = this.settings.rate;
+      utter.pitch = pitchAdj;
+      utter.volume = this.settings.volume;
+      utter.onend = () => resolve();
+      utter.onerror = (err) => reject(err);
+
+      window.speechSynthesis.speak(utter);
+    });
+  }
+
+  speakWithServerAudio(text) {
+    return new Promise((resolve, reject) => {
+      const audio = new Audio(`/api/tts?text=${encodeURIComponent(text)}`);
+      this.currentAudio = audio;
+      audio.volume = this.settings.volume;
+      audio.playbackRate = Math.min(1.35, Math.max(0.75, this.settings.rate));
+
+      audio.onended = () => {
+        this.currentAudio = null;
+        resolve();
+      };
+      audio.onerror = (e) => {
+        this.currentAudio = null;
+        reject(e);
+      };
+      audio.play().catch(reject);
+    });
+  }
+
+  async speakText(text) {
+    const mode = this.settings.engine;
+    if (mode === 'browser') {
+      return this.speakWithBrowser(text);
+    }
+    if (mode === 'server') {
+      return this.speakWithServerAudio(text);
+    }
+    // Hybrid: ưu tiên luồng server tiếng Việt rõ ràng, dự phòng Web Speech API
+    try {
+      await this.speakWithServerAudio(text);
+    } catch {
+      await this.speakWithBrowser(text);
+    }
+  }
+ }
