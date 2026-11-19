@@ -1,0 +1,264 @@
+const socket = io();
+const xianxia = new XianxiaEngine();
+
+const leaderboard = new Map();
+let demoInterval = null;
+let demoCounter = 1;
+
+const el = (id) => document.getElementById(id);
+
+const tts = new VietnameseTTSQueue((state) => {
+  el('queueCount').textContent = state.queueLength;
+  if (!state.enabled) {
+    el('speakingNow').textContent = 'Trạng thái đọc: Đã tắt MC AI';
+  } else if (state.isPaused) {
+    el('speakingNow').textContent = 'Trạng thái đọc: Đang tạm dừng';
+  } else if (state.isSpeaking) {
+    el('speakingNow').textContent = 'Trạng thái đọc: Đang cất tiếng...';
+  } else {
+    el('speakingNow').textContent = 'Trạng thái đọc: Nhàn rỗi';
+  }
+});
+
+// Mở khóa âm thanh trên iPhone khi người dùng chạm lần đầu
+document.addEventListener(
+  'touchstart',
+  () => {
+    if (window.speechSynthesis) {
+      const unlock = new SpeechSynthesisUtterance('');
+      unlock.volume = 0;
+      window.speechSynthesis.speak(unlock);
+    }
+  },
+  { once: true }
+);
+
+function nowTime() {
+  return new Date().toLocaleTimeString('vi-VN', { hour12: false });
+}
+
+function appendListItem(listId, html, extraClass = '') {
+  const ul = el(listId);
+  const li = document.createElement('li');
+  li.className = `event-item ${extraClass}`.trim();
+  li.innerHTML = `${html}<div class="event-meta">${nowTime()}</div>`;
+  ul.prepend(li);
+  while (ul.children.length > 40) {
+    ul.removeChild(ul.lastChild);
+  }
+}
+
+function logMCComment(speechText, tag = 'MC AI') {
+  const ul = el('historyList');
+  const li = document.createElement('li');
+  li.className = 'history-item';
+  li.innerHTML = `<strong>[${tag}]</strong> ${speechText}<div class="event-meta">${nowTime()}</div>`;
+  ul.prepend(li);
+  while (ul.children.length > 60) {
+    ul.removeChild(ul.lastChild);
+  }
+}
+
+function renderLeaderboard() {
+  const ul = el('leaderboardList');
+  const sorted = [...leaderboard.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  ul.innerHTML = sorted
+    .map(
+      ([name, score], idx) =>
+        `<li class="event-item ${idx === 0 ? 'big-gift' : ''}">#${idx + 1} <strong>${name}</strong> — ${score} linh thạch</li>`
+    )
+    .join('');
+}
+
+async function handleLiveEvent(ev) {
+  const threshold = Number(el('bigGiftThreshold').value) || 100;
+
+  if (ev.type === 'join') {
+    appendListItem('joinList', `<strong>${ev.nickname}</strong> (@${ev.uniqueId || 'live'}) bước vào phòng`);
+    if (!el('optWelcome').checked) return;
+
+    const speech = await xianxia.generateSpeech({
+      type: 'join',
+      user: ev.nickname,
+      customWelcome: el('customWelcome').value
+    });
+    logMCComment(speech, 'Chào đạo hữu');
+    tts.enqueueJoin(ev.nickname, speech);
+  }
+
+  if (ev.type === 'gift') {
+    const score = ev.diamondValue || ev.giftCount || 1;
+    const isBig = score >= threshold;
+    const prev = leaderboard.get(ev.nickname) || 0;
+    leaderboard.set(ev.nickname, prev + score);
+    renderLeaderboard();
+
+    appendListItem(
+'giftList',
+      `<strong>${ev.nickname}</strong> tặng <strong>${ev.giftCount}x ${ev.giftName}</strong> (${score} điểm)`,
+      isBig ? 'big-gift' : ''
+    );
+
+    if (!el('optGift').checked) return;
+    const speech = await xianxia.generateSpeech({
+      type: 'gift',
+      user: ev.nickname,
+      gift: ev.giftName,
+      count: ev.giftCount,
+      isBigGift: isBig,
+      customThanks: el('customThanks').value
+    });
+
+    logMCComment(speech, isBig ? 'Đại Lễ Ưu Tiên' : 'Tạ Quà');
+    const priority = isBig && el('optPriorityBigGift').checked;
+    tts.enqueue(speech, priority);
+  }
+
+  if (ev.type === 'chat') {
+    appendListItem('joinList', `💬 <strong>${ev.nickname}</strong>: ${ev.comment}`);
+    if (!el('optChat').checked) return;
+
+    const speech = await xianxia.generateSpeech({
+      type: 'chat',
+      user: ev.nickname,
+      comment: ev.comment
+    });
+    logMCComment(speech, 'Đáp Chat');
+    tts.enqueue(speech, false);
+  }
+}
+
+// Sự kiện từ Socket.IO Backend
+socket.on('tiktok-status', (data) => {
+  el('statusMessage').textContent = data.message;
+  const badge = el('statusBadge');
+  badge.className = 'badge';
+  if (data.status === 'connected') {
+    badge.classList.add('badge-live');
+    badge.textContent = 'Đang LIVE';
+  } else if (data.status === 'connecting') {
+    badge.classList.add('badge-connecting');
+    badge.textContent = 'Đang kết nối';
+  } else {
+    badge.classList.add('badge-idle');
+    badge.textContent = 'Chưa kết nối';
+  }
+});
+
+socket.on('tiktok-error', (msg) => {
+  el('statusMessage').textContent = msg;
+  const badge = el('statusBadge');
+  badge.className = 'badge badge-error';
+  badge.textContent = 'Lỗi kết nối';
+});
+
+socket.on('live-event', handleLiveEvent);
+
+// Điều khiển kết nối
+el('btnConnect').addEventListener('click', () => {
+  socket.emit('connect-tiktok', el('tiktokUsername').value);
+});
+
+el('btnDisconnect').addEventListener('click', () => {
+  socket.emit('disconnect-tiktok');
+});
+
+// Điều khiển MC & Giọng nói
+el('btnToggleMC').addEventListener('click', (e) => {
+  const nextState = !tts.enabled;
+  tts.setEnabled(nextState);
+  e.target.textContent = nextState ? 'MC AI: ĐANG BẬT' : 'MC AI: ĐÃ TẮT';
+  e.target.classList.toggle('active', nextState);
+});
+
+el('btnPauseTTS').addEventListener('click', (e) => {
+  const paused = tts.togglePause();
+  e.target.textContent = paused ? 'Tiếp tục đọc' : 'Tạm dừng đọc';
+});
+
+el('btnTestVoice').addEventListener('click', () => {
+  const genderLabel = el('voiceGender').value === 'male-warm' ? 'giọng nam trầm ấm' : 'giọng nữ miền Bắc nhẹ nhàng';
+  const msg = `Kiểm tra thành công ${genderLabel}. Chúc đạo hữu tu vi tinh tiến, livestream hồng phát!`;
+  logMCComment(msg, 'Kiểm tra');
+  tts.enqueue(msg, true);
+});
+
+el('btnClearHistory').addEventListener('click', () => {
+  ['joinList', 'giftList', 'leaderboardList', 'historyList'].forEach((id) => {
+el(id).innerHTML = '';
+  });
+  leaderboard.clear();
+  tts.clearQueue();
+});
+
+function syncVoiceSettings() {
+  const rate = Number(el('voiceRate').value);
+  const pitch = Number(el('voicePitch').value);
+  const volume = Number(el('voiceVolume').value);
+  const delaySeconds = Number(el('delayBetweenSpeech').value);
+
+  el('rateVal').textContent = `${rate.toFixed(2)}x`;
+  el('pitchVal').textContent = pitch.toFixed(2);
+  el('volumeVal').textContent = `${Math.round(volume * 100)}%`;
+  el('delayVal').textContent = `${delaySeconds.toFixed(1)}s`;
+
+  tts.updateSettings({
+    gender: el('voiceGender').value,
+    engine: el('voiceEngine').value,
+    rate,
+    pitch,
+    volume,
+    delaySeconds
+  });
+}
+
+['voiceGender', 'voiceEngine', 'voiceRate', 'voicePitch', 'voiceVolume', 'delayBetweenSpeech'].forEach((id) => {
+  el(id).addEventListener('input', syncVoiceSettings);
+  el(id).addEventListener('change', syncVoiceSettings);
+});
+syncVoiceSettings();
+
+// Chế độ DEMO thử nghiệm
+const sampleNames = ['Nguyễn Văn A', 'Trần Minh Khôi', 'Lê Tiểu Vy', 'Vô Danh Kiếm Khách', 'Hàn Lập'];
+const sampleGifts = [
+  { name: 'Hoa Hồng', count: 1, diamond: 5 },
+  { name: 'Linh Thạch', count: 3, diamond: 30 },
+  { name: 'Cửu Thiên Huyền Đan', count: 1, diamond: 250 }
+];
+
+function triggerDemo(kind) {
+  const name = sampleNames[demoCounter % sampleNames.length];
+  demoCounter += 1;
+
+  if (kind === 'join') {
+    handleLiveEvent({ type: 'join', nickname: name, uniqueId: `dao_huu_${demoCounter}` });
+  } else if (kind === 'gift') {
+    handleLiveEvent({ type: 'gift', nickname: name, giftName: 'Hoa Hồng', giftCount: 1, diamondValue: 5 });
+  } else if (kind === 'bigGift') {
+    handleLiveEvent({ type: 'gift', nickname: name, giftName: 'Cửu Thiên Huyền Đan', giftCount: 1, diamondValue: 250 });
+  } else if (kind === 'chat') {
+    handleLiveEvent({ type: 'chat', nickname: name, comment: 'Hôm nay luyện đan hay luyện kiếm vậy MC?' });
+  }
+}
+
+el('btnSimJoin').addEventListener('click', () => triggerDemo('join'));
+el('btnSimGift').addEventListener('click', () => triggerDemo('gift'));
+el('btnSimBigGift').addEventListener('click', () => triggerDemo('bigGift'));
+el('btnSimChat').addEventListener('click', () => triggerDemo('chat'));
+
+el('btnDemoToggle').addEventListener('click', (e) => {
+  if (demoInterval) {
+    clearInterval(demoInterval);
+    demoInterval = null;
+    e.target.textContent = 'Bật Auto DEMO';
+  } else {
+    e.target.textContent = 'Tắt Auto DEMO';
+    demoInterval = setInterval(() => {
+      const r = Math.random();
+      if (r < 0.45) triggerDemo('join');
+      else if (r < 0.75) triggerDemo('gift');
+      else if (r < 0.9) triggerDemo('chat');
+      else triggerDemo('bigGift');
+    }, 3500);
+  }
+});
