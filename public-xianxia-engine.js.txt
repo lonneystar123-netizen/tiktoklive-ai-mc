@@ -1,0 +1,101 @@
+class XianxiaEngine {
+  constructor() {
+    this.recentLines = [];
+    this.maxMemory = 12;
+
+    this.welcomeTemplates = [
+      Xin chào đạo hữu {user}, hoan nghênh đạo hữu đến với buổi tu luyện hôm nay!,
+      Đạo hữu {user} vừa bước vào tiên môn, xin mời an tọa đàm đạo!,
+      Linh khí dâng trào, chào mừng đạo hữu {user} đã ghé thăm đạo tràng!,
+      Thấy đạo hữu {user} xuất hiện, tông môn thêm phần rạng rỡ, mời đạo hữu dùng trà linh!,
+      Hoan nghênh đạo hữu {user} nhập tịch môn hạ, chúc đạo hữu sớm ngộ đại đạo!
+    ];
+
+    this.giftTemplates = [
+      Đa tạ đạo hữu {user} đã tặng {gift}! Chúc đạo hữu tu vi tăng tiến, vạn sự như ý!,
+      Đa tạ đạo hữu {user} đã góp linh lực với {gift} cho tông môn!,
+      Thật cảm kích tấm lòng của đạo hữu {user} cùng {gift}, chúc đạo hữu cảnh giới đột phá!,
+      Linh bảo {gift} từ đạo hữu {user} thật phi phàm, chúc đạo hữu phi thăng thuận lợi!
+    ];
+
+    this.bigGiftTemplates = [
+      Trời ơi! Xin chúc mừng đạo hữu {user} đã gửi tặng đại lễ {gift}! Đa tạ đạo hữu đã đại trợ tông môn!,
+      Chấn động thiên địa! Đạo hữu {user} vừa ban đại lễ {gift}, tu vi toàn trường tăng mạnh, bái tạ Lão Tổ!,
+      Đại lễ {gift} giáng thế từ đạo hữu {user}! Chúc đạo hữu vượt qua độ kiếp, sớm bước vào Tiên Tôn!
+    ];
+
+    this.chatTemplates = [
+      Đạo hữu {user} nói rất có lý, lời này ẩn chứa đạo vận sâu xa!,
+      Nghe đạo hữu {user} chia sẻ mà tại hạ thấy tâm cảnh khai mở thêm một tầng!,
+      Đạo hữu {user} thật là cao nhân ẩn thế, mời đạo hữu tiếp tục chỉ giáo!
+    ];
+  }
+
+  pickNonRepeating(pool) {
+    const candidates = pool.filter((item) = !this.recentLines.includes(item));
+    const source = candidates.length  0  candidates  pool;
+    const chosen = source[Math.floor(Math.random()  source.length)];
+    this.recentLines.push(chosen);
+    if (this.recentLines.length  this.maxMemory) {
+      this.recentLines.shift();
+    }
+    return chosen;
+  }
+
+  formatText(template, { user, gift, count }) {
+    const giftLabel = count  1  `${count} ${gift}`  gift;
+    return template
+      .replace({user}g, user  'vô danh đạo hữu')
+      .replace({gift}g, giftLabel  'Linh Bảo')
+      .trim();
+  }
+
+  async generateSpeech({ type, user, gift, count = 1, comment = '', isBigGift = false, customWelcome = '', customThanks = '' }) {
+    if (type === 'join') {
+      if (customWelcome.trim()) {
+        return this.formatText(customWelcome, { user });
+      }
+      const aiRes = await this.tryServerAI({ eventType 'join', userName user });
+      if (aiRes) return aiRes;
+return this.formatText(this.pickNonRepeating(this.welcomeTemplates), { user });
+    }
+
+    if (type === 'gift') {
+      if (customThanks.trim() && !isBigGift) {
+        return this.formatText(customThanks, { user, gift, count });
+      }
+      const aiRes = await this.tryServerAI({ eventType 'gift', userName user, giftName gift, giftCount count });
+      if (aiRes) return aiRes;
+      const pool = isBigGift  this.bigGiftTemplates  this.giftTemplates;
+      return this.formatText(this.pickNonRepeating(pool), { user, gift, count });
+    }
+
+    if (type === 'chat') {
+      const aiRes = await this.tryServerAI({ eventType 'chat', userName user, commentText comment });
+      if (aiRes) return aiRes;
+      return `${this.formatText(this.pickNonRepeating(this.chatTemplates), { user })}`;
+    }
+
+    return `Xin chào đạo hữu ${user}!`;
+  }
+
+  async tryServerAI(payload) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() = controller.abort(), 2200);
+      const res = await fetch('apiai-comment', {
+        method 'POST',
+        headers { 'Content-Type' 'applicationjson' },
+        body JSON.stringify(payload),
+        signal controller.signal
+      });
+      clearTimeout(timer);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.useLocalEngine && data.text) return data.text;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+}
