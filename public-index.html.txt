@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>TikTok LIVE AI MC – Tiên Đồ Trợ Thủ</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="bg-aura"></div>
+
+  <header class="top-bar">
+    <div class="brand">
+      <span class="seal">✦</span>
+      <div>
+        <h1>TIKTOK LIVE AI MC</h1>
+        <p>Tiên Đồ Bình Luận &amp; Giọng Nói Tiếng Việt</p>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button id="btnToggleMC" class="btn btn-gold active">MC AI: ĐANG BẬT</button>
+      <button id="btnPauseTTS" class="btn btn-jade">Tạm dừng đọc</button>
+      <button id="btnTestVoice" class="btn btn-outline">Kiểm tra giọng</button>
+      <button id="btnClearHistory" class="btn btn-danger">Xóa lịch sử</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Kết nối TikTok LIVE & Chế độ DEMO -->
+    <section class="card connect-card">
+      <div class="card-header">
+        <h2>Kết nối Đạo Trường (TikTok LIVE)</h2>
+        <span id="statusBadge" class="badge badge-idle">Chưa kết nối</span>
+      </div>
+      <p id="statusMessage" class="status-text">Sẵn sàng kết nối phiên LIVE công khai hoặc chạy chế độ DEMO.</p>
+
+      <div class="connect-row">
+        <input id="tiktokUsername" type="text" placeholder="Nhập @username (vd: tiktokvietnam)" />
+        <button id="btnConnect" class="btn btn-gold">Kết nối LIVE</button>
+        <button id="btnDisconnect" class="btn btn-outline">Ngắt kết nối</button>
+      </div>
+
+      <div class="demo-row">
+        <span class="demo-label">Chế độ DEMO (Thử nghiệm không cần LIVE):</span>
+        <button id="btnDemoToggle" class="btn btn-jade">Bật Auto DEMO</button>
+        <button id="btnSimJoin" class="btn btn-small">+1 Đạo hữu vào</button>
+        <button id="btnSimGift" class="btn btn-small">+1 Quà nhỏ</button>
+        <button id="btnSimBigGift" class="btn btn-small btn-gold">+1 Đại lễ</button>
+        <button id="btnSimChat" class="btn btn-small">+1 Bình luận</button>
+      </div>
+    </section>
+
+    <!-- Bảng điều khiển MC & Cài đặt giọng nói -->
+    <section class="grid-2">
+      <div class="card">
+        <h2>Bảng Điều Khiển MC</h2>
+        <div class="switches">
+          <label class="switch-item">
+            <input type="checkbox" id="optWelcome" checked />
+            <span>Tự động chào người xem mới</span>
+          </label>
+          <label class="switch-item">
+            <input type="checkbox" id="optGift" checked />
+            <span>Đọc tên người tặng quà</span>
+          </label>
+          <label class="switch-item">
+            <input type="checkbox" id="optChat" />
+            <span>Bình luận đáp lại chat AI</span>
+          </label>
+<label class="switch-item">
+            <input type="checkbox" id="optPriorityBigGift" checked />
+            <span>Ưu tiên đọc quà tặng lớn ngay</span>
+          </label>
+        </div>
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="delayBetweenSpeech">Khoảng nghỉ giữa các câu (giây): <strong id="delayVal">1.5s</strong></label>
+            <input type="range" id="delayBetweenSpeech" min="0.5" max="6" step="0.5" value="1.5" />
+          </div>
+
+          <div class="field">
+            <label for="bigGiftThreshold">Ngưỡng đại lễ ưu tiên (Kim cương/Xu):</label>
+            <input type="number" id="bigGiftThreshold" min="1" value="100" />
+          </div>
+
+          <div class="field">
+            <label for="customWelcome">Mẫu câu chào tùy chỉnh (dùng {user}):</label>
+            <input type="text" id="customWelcome" placeholder="Để trống để dùng AI Tu Tiên đa dạng..." />
+          </div>
+
+          <div class="field">
+            <label for="customThanks">Mẫu câu cảm ơn quà (dùng {user}, {gift}):</label>
+            <input type="text" id="customThanks" placeholder="Để trống để dùng AI Tu Tiên đa dạng..." />
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Hệ Thống Giọng Nói AI Tiếng Việt</h2>
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="voiceGender">Chọn giọng đọc:</label>
+            <select id="voiceGender">
+              <option value="female-north">Giọng Nữ miền Bắc nhẹ nhàng</option>
+              <option value="male-warm">Giọng Nam trầm ấm, tự nhiên</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="voiceEngine">Nguồn phát giọng nói:</label>
+            <select id="voiceEngine">
+              <option value="hybrid">Tự động tốt nhất (Web Speech + AI Audio)</option>
+              <option value="browser">Giọng đọc trình duyệt thiết bị</option>
+              <option value="server">Luồng giọng tiếng Việt qua Server</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="voiceRate">Tốc độ đọc: <strong id="rateVal">1.00x</strong></label>
+            <input type="range" id="voiceRate" min="0.7" max="1.4" step="0.05" value="1.0" />
+          </div>
+
+          <div class="field">
+            <label for="voicePitch">Cao độ giọng nói: <strong id="pitchVal">1.00</strong></label>
+            <input type="range" id="voicePitch" min="0.7" max="1.35" step="0.05" value="1.0" />
+          </div>
+
+          <div class="field full-span">
+            <label for="voiceVolume">Âm lượng: <strong id="volumeVal">100%</strong></label>
+            <input type="range" id="voiceVolume" min="0" max="1" step="0.05" value="1" />
+          </div>
+        </div>
+<div class="queue-info">
+          <span>Hàng đợi đang chờ đọc: <strong id="queueCount">0</strong> câu</span>
+          <span id="speakingNow">Trạng thái đọc: Nhàn rỗi</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Danh sách sự kiện & Bảng xếp hạng -->
+    <section class="grid-3">
+      <div class="card list-card">
+        <h2>Đạo Hữu Mới Vào</h2>
+        <ul id="joinList" class="event-list"></ul>
+      </div>
+
+      <div class="card list-card">
+        <h2>Linh Bảo / Quà Tặng</h2>
+        <ul id="giftList" class="event-list"></ul>
+      </div>
+
+      <div class="card list-card">
+        <h2>Bảng Xếp Hạng Công Đức</h2>
+        <ul id="leaderboardList" class="event-list"></ul>
+      </div>
+    </section>
+
+    <!-- Lịch sử bình luận MC AI -->
+    <section class="card">
+      <h2>Lịch Sử Bình Luận Của MC AI</h2>
+      <ul id="historyList" class="history-list"></ul>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="xianxia-engine.js"></script>
+  <script src="tts-queue.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
